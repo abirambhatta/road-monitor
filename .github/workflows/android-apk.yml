@@ -1,0 +1,66 @@
+# Builds an installable .apk of the Expo app on a GitHub Linux runner.
+# Linux runners are much cheaper than macOS runners, and this avoids installing
+# the Android SDK + Java in WSL.
+#
+#   Debug   = development client (connect to `npx expo start --tunnel`).
+#   Release = standalone app. Signed with the debug keystore that expo prebuild
+#             generates, so it's fine for testing and demos but not for
+#             Play Store publishing.
+
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Build configuration"
+        type: choice
+        options: [Debug, Release]
+        default: Debug
+
+# Only one build of this workflow at a time; a newer run cancels an older one.
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --clean
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          if [ "${{ inputs.configuration }}" = "Release" ]; then
+            ./gradlew assembleRelease --no-daemon
+          else
+            ./gradlew assembleDebug --no-daemon
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: road-monitor-android-${{ inputs.configuration }}
+          path: "android/app/build/outputs/apk/**/*.apk"
+          retention-days: 7

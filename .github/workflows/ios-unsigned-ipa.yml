@@ -1,0 +1,99 @@
+# Builds an UNSIGNED .ipa of the Expo app on a GitHub macOS runner.
+# Install it on an iPhone with Sideloadly + a free Apple ID.
+#
+# Manual trigger only (Actions tab → "iOS unsigned IPA" → Run workflow) to save
+# macOS runner minutes.
+#
+#   Debug   = development client. Opens a launcher; connect it to
+#             `npx expo start --tunnel` running in WSL. Rebuild only when
+#             native dependencies change.
+#   Release = standalone app with the JS bundled in. Use for demos.
+
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Build configuration"
+        type: choice
+        options: [Debug, Release]
+        default: Debug
+
+# Only one build of this workflow at a time; a newer run cancels an older one.
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
+jobs:
+  build-ios:
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: .
+    env:
+      CONFIG: ${{ inputs.configuration }}
+      # Expo SDK 58 requires Xcode 26.4+ (docs.expo.dev/versions/v58.0.0,
+      # "Support for Android and iOS versions" table).
+      #  - macos-15 default Xcode 16.4 / Swift 6.1 failed: "Swift tools version
+      #    6.2.0 but the installed version is 6.1.0".
+      #  - Xcode 26.3 / Swift 6.2.4 failed in expo-modules-jsi: "sending 'slot'
+      #    risks causing data races".
+      # macos-26 (arm64, image 20261117) has Xcode 26.6 as default; pinned here
+      # so an image update can't silently change it. If a future image drops
+      # it, pick another 26.4+ version listed in that image's readme.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode / Swift versions
+        run: |
+          test -d "$DEVELOPER_DIR" || { echo "Xcode not found at $DEVELOPER_DIR"; ls -d /Applications/Xcode_*.app; exit 1; }
+          xcodebuild -version
+          swift --version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Generate native iOS project (expo prebuild, runs pod install)
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Build app with code signing disabled
+        run: |
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -n1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          echo "Workspace: $WORKSPACE  Scheme: $SCHEME  Config: $CONFIG"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIG" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -quiet \
+            build
+
+      - name: Package .app into .ipa
+        run: |
+          APP=$(find "build/Build/Products/${CONFIG}-iphoneos" -maxdepth 1 -name "*.app" | head -n1)
+          test -n "$APP" || { echo "No .app found"; exit 1; }
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry "road-monitor-${CONFIG}-unsigned.ipa" Payload
+          ls -lh *.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: road-monitor-ios-${{ inputs.configuration }}
+          path: "*.ipa"
+          retention-days: 7
