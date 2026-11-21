@@ -63,6 +63,10 @@ jobs:
         run: npm ci
 
       - name: Generate native iOS project (expo prebuild, runs pod install)
+        # Optional repo secret. When set, app.config.ts adds Google Maps to the
+        # build; when missing, the Map tab shows a "not configured" state.
+        env:
+          GOOGLE_MAPS_IOS_API_KEY: ${{ secrets.GOOGLE_MAPS_IOS_API_KEY }}
         run: npx expo prebuild --platform ios --clean
 
       - name: Build app with code signing disabled

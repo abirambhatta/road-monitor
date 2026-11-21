@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fyp.roadmonitor"
@@ -23,6 +23,22 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "scheme": "roadmonitor"
+    "scheme": "roadmonitor",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Road Monitor uses the camera to inspect the road surface for potholes."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Road Monitor uses your location to tag each detection with GPS coordinates."
+        }
+      ]
+    ],
+    "backgroundColor": "#0F1113"
   }
 }
